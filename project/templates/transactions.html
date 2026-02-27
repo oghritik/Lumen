@@ -2,76 +2,95 @@
 {% block title %}Transactions - Lumen{% endblock %}
 
 {% block content %}
-<div class="page-container">
+<div class="txn-page">
 
-  <!-- Top Toolbar -->
-  <div class="toolbar"
-    style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; padding: 8px 16px; background: rgba(255,255,255,0.03); border-radius: 50px; border: 1px solid var(--border-color);">
-    <div style="display: flex; gap: 12px; align-items: center;">
-      <h2 style="margin: 0; font-size: 18px; font-weight: 600; padding: 0 12px;">Transactions</h2>
-      <span class="chip"
-        style="background: var(--card-purple); color: var(--text-dark); padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 600;">{{
-        txns|length }}</span>
+  <!-- Header Controls -->
+  <div class="txn-header">
+    <div class="txn-header__left">
+      <button class="txn-btn txn-btn--primary" onclick="alert('Add Transaction')">
+        <span class="txn-btn__icon">+</span>
+        Add Transaction
+      </button>
     </div>
 
-    <div class="toolbar-actions" style="display: flex; gap: 8px;">
-      <button class="btn-pill btn-secondary">
-        📅 Date Range
+    <div class="txn-header__center">
+      <button class="txn-month-arrow txn-month-arrow--prev" onclick="changeMonth(-1)" aria-label="Previous month">&larr;</button>
+      <span class="txn-month-label" id="monthLabel">February 2026</span>
+      <button class="txn-month-arrow txn-month-arrow--next" onclick="changeMonth(1)" aria-label="Next month">&rarr;</button>
+    </div>
+
+    <div class="txn-header__right">
+      <button class="txn-btn txn-btn--ghost" onclick="alert('Export')">
+        <span class="txn-btn__icon">&darr;</span>
+        Export
       </button>
-      <button class="btn-pill btn-secondary">
-        ⬇ Export
-      </button>
-      <button class="btn-pill btn-primary">
-        + Add New
+      <button class="txn-btn txn-btn--ghost" onclick="alert('Sort')">
+        <span class="txn-btn__icon">&updownarrow;</span>
+        Sort
       </button>
     </div>
   </div>
 
-  {% if txns %}
-  <div class="wide-card-list">
-    {% for t in txns %}
-    <div class="txn-card card"
-      style="background: var(--card-cream); color: var(--text-dark); border: none; margin-bottom: 12px; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; border-radius: 24px;">
+  <!-- Transaction Count -->
+  <div class="txn-count">
+    <span class="txn-count__number">{{ txns|length }}</span>
+    <span class="txn-count__label">transactions</span>
+  </div>
 
-      <div class="txn-left" style="display: flex; align-items: center; gap: 16px;">
-        <!-- Type Icon -->
-        <div class="icon-circle"
-          style="width: 48px; height: 48px; background: rgba(0,0,0,0.05); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px;">
-          {% if t.type == 'credit' %}
-          ↓
-          {% else %}
-          ↑
-          {% endif %}
+  <!-- Scroll Container with Gradient Overlays -->
+  <div class="txn-scroll-wrapper">
+    <div class="txn-scroll-fade txn-scroll-fade--top"></div>
+    <div class="txn-scroll-fade txn-scroll-fade--bottom"></div>
+
+    <div class="txn-scroll-container" id="txnScrollContainer">
+      <!-- Top spacer so first card can reach center -->
+      <div class="txn-scroll-spacer"></div>
+
+      {% if txns %}
+        {% for t in txns %}
+        <div class="txn-card" data-index="{{ loop.index0 }}">
+          <!-- Left: Droplet Icon -->
+          <div class="txn-card__left">
+            <div class="txn-card__droplet txn-card__droplet--{{ t.type }}">
+              <span>{{ 'Credit' if t.type == 'credit' else 'Debit' }}</span>
+            </div>
+          </div>
+
+          <!-- Middle: Details -->
+          <div class="txn-card__middle">
+            <div class="txn-card__name">{{ 'From' if t.type == 'credit' else 'To' }}: {{ t.merchant or "Unknown" }}</div>
+            <div class="txn-card__date">{{ t.date or "No date" }}</div>
+          </div>
+
+          <!-- Right: Pills + Amount -->
+          <div class="txn-card__right">
+            <div class="txn-card__pills">
+              <span class="txn-pill">{{ t.category or "Uncategorised" }}</span>
+              <a href="{{ url_for('transaction_detail', txn_id=t.txn_id) }}" class="txn-pill txn-pill--action">Details</a>
+            </div>
+            <div class="txn-card__amount txn-card__amount--{{ t.type }}">
+              {% if t.type == 'credit' %}+{% else %}-{% endif %}&#8377;{{ t.amount }}
+            </div>
+          </div>
         </div>
-
-        <div>
-          <div style="font-weight: 600; font-size: 16px; color: #1a202c;">{{ t.merchant or "Unknown Merchant" }}</div>
-          <div style="font-size: 13px; color: rgba(0,0,0,0.6); margin-top: 2px;">{{ t.date }} • {{ t.category }}</div>
+        {% endfor %}
+      {% else %}
+        <!-- Empty State -->
+        <div class="txn-empty">
+          <div class="txn-empty__icon">&#128184;</div>
+          <h3 class="txn-empty__title">No transactions yet</h3>
+          <p class="txn-empty__text">Sync from Gmail or add manually</p>
         </div>
-      </div>
+      {% endif %}
 
-      <div class="txn-right" style="display: flex; align-items: center; gap: 16px;">
-        <div
-          style="font-weight: 700; font-size: 18px; color: {% if t.type == 'credit' %}#10b981{% else %}#1a202c{% endif %};">
-          {% if t.type == 'credit' %}+{% else %}-{% endif %}₹{{ t.amount }}
-        </div>
-
-        <a href="{{ url_for('transaction_detail', txn_id=t.txn_id) }}" class="btn-pill btn-secondary"
-          style="border-color: rgba(0,0,0,0.1); color: rgba(0,0,0,0.7); font-size: 13px; height: 36px; padding: 0 16px; display: inline-flex; align-items: center;">
-          Details
-        </a>
-      </div>
-
+      <!-- Bottom spacer so last card can reach center -->
+      <div class="txn-scroll-spacer"></div>
     </div>
-    {% endfor %}
   </div>
-  {% else %}
-  <div class="empty-state" style="text-align: center; padding: 60px; color: var(--text-muted);">
-    <div style="font-size: 48px; margin-bottom: 20px;">💸</div>
-    <h3>No transactions yet</h3>
-    <p>Sync Gmail or add manual transactions</p>
-  </div>
-  {% endif %}
 
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/transactions.js') }}"></script>
 {% endblock %}

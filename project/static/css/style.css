@@ -48,14 +48,19 @@ body {
 }
 
 /* ========== GLOBAL LAYOUT ========== */
-.app-container {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: var(--space-lg);
+
+/* Navbar wrapper — full width, consistent horizontal padding */
+.nav-wrapper {
+    width: 100%;
+    padding: 20px 80px 0;
+    box-sizing: border-box;
 }
 
-.main-content {
-    margin-top: var(--space-lg);
+/* Unified page container — every page uses this */
+.page-container {
+    width: 100%;
+    padding: 24px 80px 40px;
+    box-sizing: border-box;
 }
 
 /* ========== COMPONENT: CARDS ========== */
@@ -411,20 +416,445 @@ input[type="file"] {
     .metrics-row, .charts-row {
         grid-template-columns: 1fr;
     }
-    
+
     .nav-pills {
         display: none; /* Mobile menu needed or stack */
     }
-    
+
     /* Simple mobile stack */
     .top-nav {
         flex-direction: column;
         gap: var(--space-md);
     }
-    
+
     .nav-pills {
         display: flex;
         flex-wrap: wrap;
         justify-content: center;
+    }
+}
+
+
+/* ================================================================
+   TRANSACTION PAGE - Soft Light Fintech Style
+   ================================================================ */
+
+/* Page wrapper — warm beige background */
+.txn-page {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 120px);
+    overflow: hidden;
+    background: #F5F0E8;
+    border-radius: 32px;
+    padding: 24px;
+}
+
+/* ---------- Header Controls ---------- */
+.txn-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    background: rgba(255, 255, 255, 0.6);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    border-radius: 50px;
+    margin-bottom: 16px;
+    flex-shrink: 0;
+}
+
+.txn-header__left,
+.txn-header__right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.txn-header__center {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+/* Buttons */
+.txn-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 20px;
+    border-radius: 50px;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    transition: background 0.2s, border-color 0.2s;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.txn-btn__icon {
+    font-size: 16px;
+    line-height: 1;
+}
+
+.txn-btn--primary {
+    background: #4A7C6F;
+    color: #fff;
+}
+
+.txn-btn--primary:hover {
+    background: #3D6B5F;
+}
+
+.txn-btn--ghost {
+    background: transparent;
+    color: #6B6560;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.txn-btn--ghost:hover {
+    color: #2C2825;
+    background: rgba(0, 0, 0, 0.04);
+}
+
+/* Month Selector */
+.txn-month-arrow {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    background: transparent;
+    color: #6B6560;
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s, color 0.2s;
+}
+
+.txn-month-arrow:hover {
+    background: rgba(0, 0, 0, 0.05);
+    color: #2C2825;
+}
+
+.txn-month-label {
+    font-size: 15px;
+    font-weight: 600;
+    color: #2C2825;
+    min-width: 140px;
+    text-align: center;
+    user-select: none;
+}
+
+/* ---------- Transaction Count ---------- */
+.txn-count {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 0 4px;
+    margin-bottom: 12px;
+    flex-shrink: 0;
+}
+
+.txn-count__number {
+    font-size: 28px;
+    font-weight: 700;
+    color: #2C2825;
+}
+
+.txn-count__label {
+    font-size: 14px;
+    color: #A09A90;
+    font-weight: 400;
+}
+
+/* ---------- Scroll Wrapper & Fades ---------- */
+.txn-scroll-wrapper {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.txn-scroll-fade {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 80px;
+    pointer-events: none;
+    z-index: 2;
+}
+
+.txn-scroll-fade--top {
+    top: 0;
+    background: linear-gradient(to bottom, #F5F0E8 0%, transparent 100%);
+}
+
+.txn-scroll-fade--bottom {
+    bottom: 0;
+    background: linear-gradient(to top, #F5F0E8 0%, transparent 100%);
+}
+
+/* ---------- Scroll Container ---------- */
+.txn-scroll-container {
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scroll-snap-type: y proximity;
+    -webkit-overflow-scrolling: touch;
+
+    /* Hide scrollbar */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.txn-scroll-container::-webkit-scrollbar {
+    display: none;
+}
+
+/* Spacers let first/last cards reach viewport center */
+.txn-scroll-spacer {
+    height: 35vh;
+    scroll-snap-align: none;
+    pointer-events: none;
+}
+
+/* ---------- Transaction Card ---------- */
+.txn-card {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding: 32px 36px;
+    margin: 0 auto 20px;
+    max-width: 960px;
+    width: 100%;
+    height: auto;
+    border-radius: 28px;
+    background: #FDFBF7;
+    border: 1px solid rgba(0, 0, 0, 0.04);
+    color: #2C2825;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+    scroll-snap-align: center;
+
+    /* GPU-optimized — keep for scroll animation */
+    will-change: transform, opacity, filter;
+    transform: scale(0.88) perspective(800px) rotateX(0deg);
+    opacity: 0.45;
+    filter: blur(1.5px);
+    transition: transform 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                opacity  0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                filter   0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                box-shadow 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                border-color 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* Focused state — applied via JS */
+.txn-card.is-focused {
+    transform: scale(1) perspective(800px) rotateX(0deg);
+    opacity: 1;
+    filter: blur(0px);
+    box-shadow:
+        0 8px 40px rgba(0, 0, 0, 0.07),
+        0 0 0 2px rgba(74, 124, 111, 0.18);
+    border-color: rgba(74, 124, 111, 0.2);
+}
+
+/* ---------- Card: Droplet Icon ---------- */
+.txn-card__left {
+    flex-shrink: 0;
+}
+
+.txn-card__droplet {
+    width: 60px;
+    height: 76px;
+    border-radius: 50% 50% 50% 50% / 62% 62% 38% 38%;
+    border: 2.5px solid;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+}
+
+.txn-card__droplet--credit {
+    border-color: #2D9D6F;
+    color: #2D9D6F;
+    background: rgba(45, 157, 111, 0.06);
+}
+
+.txn-card__droplet--debit {
+    border-color: #D94F4F;
+    color: #D94F4F;
+    background: rgba(217, 79, 79, 0.06);
+}
+
+/* ---------- Card: Middle ---------- */
+.txn-card__middle {
+    flex: 1;
+    min-width: 0;
+}
+
+.txn-card__name {
+    font-size: 22px;
+    font-weight: 600;
+    color: #2C2825;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.3;
+}
+
+.txn-card__date {
+    font-size: 13px;
+    color: #A09A90;
+    margin-top: 4px;
+    font-weight: 400;
+}
+
+/* ---------- Card: Right ---------- */
+.txn-card__right {
+    flex-shrink: 0;
+    text-align: right;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 10px;
+}
+
+.txn-card__amount {
+    font-size: 48px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    letter-spacing: -1px;
+}
+
+.txn-card__amount--credit {
+    color: #2D9D6F;
+}
+
+.txn-card__amount--debit {
+    color: #D94F4F;
+}
+
+/* ---------- Card: Pills ---------- */
+.txn-card__pills {
+    display: flex;
+    gap: 6px;
+}
+
+.txn-pill {
+    display: inline-block;
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+    background: rgba(0, 0, 0, 0.03);
+    color: #8A8580;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    text-decoration: none;
+    transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.txn-pill--action {
+    cursor: pointer;
+}
+
+.txn-pill--action:hover {
+    background: rgba(74, 124, 111, 0.08);
+    color: #4A7C6F;
+    border-color: rgba(74, 124, 111, 0.2);
+}
+
+/* ---------- Empty State ---------- */
+.txn-empty {
+    text-align: center;
+    padding: 80px 20px;
+}
+
+.txn-empty__icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+}
+
+.txn-empty__title {
+    font-size: 18px;
+    font-weight: 600;
+    color: #2C2825;
+    margin-bottom: 8px;
+}
+
+.txn-empty__text {
+    font-size: 14px;
+    color: #A09A90;
+}
+
+/* ---------- Transaction Page Responsive ---------- */
+@media (max-width: 768px) {
+    .txn-page {
+        padding: 16px;
+        border-radius: 24px;
+    }
+
+    .txn-header {
+        flex-direction: column;
+        gap: 12px;
+        border-radius: 24px;
+        padding: 16px;
+    }
+
+    .txn-header__left,
+    .txn-header__center,
+    .txn-header__right {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .txn-card {
+        padding: 24px 20px;
+        gap: 16px;
+        border-radius: 20px;
+    }
+
+    .txn-card__droplet {
+        width: 48px;
+        height: 60px;
+        font-size: 10px;
+    }
+
+    .txn-card__name {
+        font-size: 17px;
+    }
+
+    .txn-card__amount {
+        font-size: 32px;
+    }
+
+    .txn-card__pills {
+        display: none;
+    }
+
+    .txn-scroll-spacer {
+        height: 30vh;
+    }
+}
+
+@media (max-width: 480px) {
+    .txn-header__right {
+        display: none;
+    }
+
+    .txn-card__droplet {
+        width: 40px;
+        height: 50px;
+        font-size: 9px;
+    }
+
+    .txn-card__amount {
+        font-size: 28px;
     }
 }
