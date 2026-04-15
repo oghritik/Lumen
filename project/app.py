@@ -8,13 +8,12 @@ from google.oauth2.credentials import Credentials
 from dotenv import load_dotenv
 from io import BytesIO
 from datetime import timedelta
-import re
 import json
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 # Import ONE database instance
 from modules.database.db import db
-from modules.database.models import Transaction, Receipt, Wishlist
+from modules.database.models import Transaction, Receipt
 from modules.database.repository import TransactionRepository
 from modules.database.transaction_repo import ReceiptRepository
 from modules.database.wishlist_repo import WishlistRepository
@@ -25,10 +24,11 @@ from modules.analytics.analyzer import generate_analytics_report
 from modules.analytics.cache import analytics_cache
 
 # Import NVIDIA OCR module
-from modules.nvidia_ocr import process_uploaded_file, parse_json_safely
-
-# Import LLM extraction functions
-from modules.llm_extraction.extractor import extract_transaction_from_text, extract_receipt_from_text
+from modules.services.receipt_upload_service import process_receipt_upload
+from modules.services.dashboard_service import build_dashboard_payload, build_dashboard_error_payload
+from modules.services.wishlist_service import categorize_item, serialize_wishlist_items
+from modules.web.access import require_auth
+from modules.web.user_context import get_or_cache_user_email
 
 # Import MCP server for secure LLM-backend communication
 from modules.mcp.server import mcp_server
@@ -189,11 +189,9 @@ def mcp_skip():
 
 
 @app.route("/mcp/setup")
+@require_auth()
 def mcp_setup():
     """Post-login MCP options page shown immediately after Google auth."""
-    if "credentials" not in session:
-        return redirect(url_for("index"))
-
     return render_template("landing.html", show_mcp_panel=True)
 
 
@@ -295,39 +293,6 @@ def oauth2callback():
     return redirect(url_for("mcp_setup"))
 
 
-# ---------------------- EXTRACT TRANSACTION INFO ----------------------
-def extract_transaction(snippet):
-    text = snippet.lower()
-
-    # Enhanced amount pattern to match various formats: Rs 100, Rs. 100, ₹100, INR 100
-    amount_pattern = r"(?:rs\.?|₹|inr)\s?([0-9,]+(?:\.[0-9]{1,2})?)"
-    amount_match = re.search(amount_pattern, text)
-    if amount_match:
-        # Remove commas from amount
-        amount = amount_match.group(1).replace(",", "")
-    else:
-        amount = None
-
-    # Enhanced action detection with more keywords
-    if any(word in text for word in ["credited", "received", "deposit", "credit to", "money received", "added to"]):
-        action = "credited"
-    elif any(word in text for word in ["debited", "spent", "withdrawn", "purchased", "paid", "debit from", "payment to", "transferred to", "sent to"]):
-        action = "debited"
-    else:
-        action = None
-
-    # Enhanced name pattern to capture merchant/person names
-    name_pattern = r"(?:to|from|at|via)\s+([A-Za-z0-9][A-Za-z0-9\s\.\-]{2,30}?)(?:\s+(?:on|for|is|was|a\/c|account)|$)"
-    name_match = re.search(name_pattern, text)
-    name = name_match.group(1).strip() if name_match else None
-
-    return {
-        "amount": amount,
-        "action": action,
-        "name": name
-    }
-
-
 # ---------------------- OLD DASHBOARD (REMOVED) ----------------------
 # This dashboard page has been replaced by dashboard_analytics
 # Kept as commented code in case needed for reference
@@ -340,10 +305,8 @@ def extract_transaction(snippet):
 
 # ---------------------- RECEIPTS PAGE ----------------------
 @app.route("/receipts")
+@require_auth(allow_guest=True)
 def receipts_page():
-    if "credentials" not in session and not session.get("guest_access"):
-        return redirect(url_for("index"))
-
     # Load receipts from SQLite
     receipts_data = ReceiptRepository.get_recent(limit=40)
 
@@ -371,11 +334,9 @@ def receipts_page():
 
 # ---------------------- VIEW OCR RECEIPT ----------------------
 @app.route("/receipt/<receipt_id>")
+@require_auth(allow_guest=True)
 def view_receipt(receipt_id):
     """View detailed information for an OCR-uploaded receipt."""
-    if "credentials" not in session and not session.get("guest_access"):
-        return redirect(url_for("index"))
-    
     # Get receipt from database
     receipt = Receipt.query.filter_by(receipt_id=receipt_id).first()
     
@@ -398,10 +359,8 @@ def view_receipt(receipt_id):
 
 # ---------------------- TRANSACTIONS PAGE ----------------------
 @app.route("/transactions")
+@require_auth(allow_guest=True)
 def transactions_page():
-    if "credentials" not in session and not session.get("guest_access"):
-        return redirect(url_for("index"))
-
     # Load transactions from SQLite
     transactions = repo.get_all()[:40]  # Get first 40
 
@@ -420,11 +379,9 @@ def transactions_page():
 
 
 @app.route("/transaction/<txn_id>")
+@require_auth(allow_guest=True)
 def transaction_detail(txn_id):
     """View detailed transaction information"""
-    if "credentials" not in session and not session.get("guest_access"):
-        return redirect(url_for("index"))
-    
     # Get transaction from database
     transaction = Transaction.query.filter_by(txn_id=txn_id).first()
     
@@ -462,10 +419,8 @@ def download(message_id, attachment_id, filename):
 
 # ---------------------- SYNC GMAIL DATA ----------------------
 @app.route("/sync")
+@require_auth()
 def sync_gmail():
-    if "credentials" not in session:
-        return redirect(url_for("index"))
-    
     try:
         # Run Gmail sync with LLM extraction
         result = sync_all_gmail_data(session["credentials"])
@@ -486,11 +441,9 @@ def sync_gmail():
 
 
 @app.route("/sync/api")
+@require_auth(api=True)
 def sync_gmail_api():
     """API endpoint for AJAX sync requests"""
-    if "credentials" not in session:
-        return jsonify({"success": False, "error": "Not authenticated"}), 401
-    
     try:
         result = sync_all_gmail_data(session["credentials"])
         return jsonify({"success": True, "data": result})
@@ -639,11 +592,9 @@ def get_all_transactions():
 
 # ---------------------- DASHBOARD (ANALYTICS) PAGE ----------------------
 @app.route("/dashboard-analytics")
+@require_auth(allow_guest=True)
 def dashboard_analytics():
     """Dashboard - Anomalies and Analytics page"""
-    if "credentials" not in session and not session.get("guest_access"):
-        return redirect(url_for("index"))
-    
     return render_template("anomalies.html")
 
 
@@ -655,75 +606,14 @@ def dashboard_data():
     """
     try:
         print("📊 Dashboard data requested")
-        
-        # Get transactions for basic analytics
-        transactions = repo.get_all()
-        
-        # Calculate totals
-        debit_total = sum(t.amount or 0 for t in transactions if t.type == 'debit')
-        credit_total = sum(t.amount or 0 for t in transactions if t.type == 'credit')
-        net_flow = credit_total - debit_total
-        
-        # Get category breakdown for donut chart
-        categories = {}
-        for t in transactions:
-            if t.category and t.type == 'debit':  # Only debit transactions for spending
-                categories[t.category] = categories.get(t.category, 0) + (t.amount or 0)
-        
-        # Sort categories by amount
-        sorted_categories = sorted(categories.items(), key=lambda x: x[1], reverse=True)[:5]
-        
-        donut_labels = [cat[0] for cat in sorted_categories] or ['No Data']
-        donut_values = [cat[1] for cat in sorted_categories] or [0]
-        
-        # Basic line chart data (last 7 days spending)
-        from datetime import datetime, timedelta
-        today = datetime.now()
-        daily_spending = {}
-        
-        for i in range(7):
-            date = (today - timedelta(days=i)).strftime('%Y-%m-%d')
-            daily_spending[date] = 0
-        
-        for t in transactions:
-            if t.date and t.type == 'debit':
-                if t.date in daily_spending:
-                    daily_spending[t.date] += t.amount or 0
-        
-        line_labels = list(daily_spending.keys())
-        line_values = list(daily_spending.values())
-        
-        return jsonify({
-            "success": True,
-            "debit_total": debit_total,
-            "credit_total": credit_total,
-            "net_flow": net_flow,
-            "donut_labels": donut_labels,
-            "donut_values": donut_values,
-            "mini_labels": donut_labels[:3],
-            "mini_values": donut_values[:3],
-            "line_labels": line_labels,
-            "line_values": line_values
-        })
+        return jsonify(build_dashboard_payload(repo.get_all()))
         
     except Exception as e:
         print(f"❌ Dashboard data error: {str(e)}")
         import traceback
         traceback.print_exc()
-        
-        return jsonify({
-            "success": False,
-            "error": str(e),
-            "debit_total": 0,
-            "credit_total": 0,
-            "net_flow": 0,
-            "donut_labels": ['No Data'],
-            "donut_values": [0],
-            "mini_labels": ['No Data'],
-            "mini_values": [0],
-            "line_labels": ['No Data'],
-            "line_values": [0]
-        }), 500
+
+        return jsonify(build_dashboard_error_payload(str(e))), 500
 
 
 @app.route("/api/anomalies-data")
@@ -789,241 +679,24 @@ def anomalies_data():
 @app.route("/upload-receipt", methods=["POST"])
 def upload_receipt():
     """
-    Handle receipt file upload with OCR processing.
-    
-    Flow:
-    1. Save uploaded file to ./uploads/receipts/
-    2. Extract TEXT using NVIDIA Vision LLM
-    3. Validate and parse JSON from text
-    4. Map to database schema
-    5. Insert into receipts table
+    Handle receipt uploads by delegating orchestration to the service layer.
     """
-    try:
-        print(f"\n🔍 Upload receipt request received")
-        
-        # Check if file was uploaded
-        if 'file' not in request.files:
-            print("❌ No file in request")
-            return jsonify({
-                "success": False,
-                "error": "No file uploaded"
-            }), 400
-        
-        file = request.files['file']
-        print(f"📄 File received: {file.filename}")
-        
-        if file.filename == '':
-            print("❌ Empty filename")
-            return jsonify({
-                "success": False,
-                "error": "Empty filename"
-            }), 400
-        
-        # Validate file extension
-        allowed_extensions = {'.jpg', '.jpeg', '.png', '.webp', '.pdf'}
-        file_ext = os.path.splitext(file.filename)[1].lower()
-        print(f"📋 File extension: {file_ext}")
-        
-        if file_ext not in allowed_extensions:
-            print(f"❌ Invalid file type: {file_ext}")
-            return jsonify({
-                "success": False,
-                "error": f"Invalid file type '{file_ext}'. Allowed: {', '.join(allowed_extensions)}"
-            }), 400
-        
-        # Check file size (not empty)
-        file.seek(0, 2)  # Seek to end
-        file_size = file.tell()
-        file.seek(0)  # Reset to beginning
-        print(f"📏 File size: {file_size} bytes")
-        
-        if file_size == 0:
-            print("❌ Empty file")
-            return jsonify({
-                "success": False,
-                "error": "Uploaded file is empty"
-            }), 400
-        
-        # Create uploads directory if it doesn't exist
-        upload_dir = os.path.join(project_dir, 'uploads', 'receipts')
-        os.makedirs(upload_dir, exist_ok=True)
-        print(f"📁 Upload directory: {upload_dir}")
-        
-        # Save file with timestamp to avoid conflicts
-        from datetime import datetime
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        safe_filename = f"{timestamp}_{file.filename}"
-        file_path = os.path.join(upload_dir, safe_filename)
-        
-        file.save(file_path)
-        print(f"✅ File saved: {file_path}")
-        
-        # Verify file was saved correctly
-        if not os.path.exists(file_path):
-            print(f"❌ File not found after save: {file_path}")
-            return jsonify({
-                "success": False,
-                "error": "Failed to save uploaded file"
-            }), 500
-        
-        # Step 2: Extract TEXT using NVIDIA Vision LLM
-        print("🔍 Running OCR extraction...")
-        raw_text_response = process_uploaded_file(file_path)
-        print(f"📝 OCR raw response type: {type(raw_text_response)}")
-        print(f"📝 OCR response length: {len(raw_text_response) if raw_text_response else 0}")
-        
-        if not raw_text_response:
-            print("❌ OCR extraction failed - no response")
-            return jsonify({
-                "success": False,
-                "error": "Failed to extract data from file - OCR returned no response"
-            }), 400
-        
-        if len(raw_text_response.strip()) < 10:
-            print(f"❌ OCR extraction failed - response too short: '{raw_text_response}'")
-            return jsonify({
-                "success": False,
-                "error": "OCR extraction failed - response too short or empty"
-            }), 400
-        
-        print(f"✅ OCR text response received: {len(raw_text_response)} characters")
-        print(f"📄 Raw OCR output preview: {raw_text_response[:200]}...")
-        
-        # Step 3: Parse and validate JSON from text
-        print("🔍 Parsing JSON from OCR text...")
-        receipt_json = parse_json_safely(raw_text_response)
-        print(f"📊 JSON parsing result: {receipt_json is not None}")
-        
-        if not receipt_json:
-            print(f"❌ JSON parsing failed")
-            print(f"Raw response: {raw_text_response[:300]}...")
-            return jsonify({
-                "success": False,
-                "error": "OCR returned invalid JSON. Please try with a clearer image.",
-                "raw_output": raw_text_response[:500]
-            }), 400
-        
-        print(f"✅ Valid JSON parsed: {receipt_json}")
-        
-        # Step 4: Validate required JSON fields
-        required_fields = ['vendor', 'date', 'total']
-        missing_fields = []
-        
-        for field in required_fields:
-            if field not in receipt_json or not receipt_json[field]:
-                missing_fields.append(field)
-        
-        if missing_fields:
-            print(f"❌ Missing required fields: {missing_fields}")
-            return jsonify({
-                "success": False,
-                "error": f"Missing required fields: {', '.join(missing_fields)}",
-                "extracted_json": receipt_json
-            }), 422
-        
-        # Validate total is a number
-        try:
-            total_amount = float(receipt_json.get('total', 0))
-            if total_amount <= 0:
-                print(f"❌ Invalid total amount: {total_amount}")
-                return jsonify({
-                    "success": False,
-                    "error": "Total amount must be greater than 0"
-                }), 422
-        except (ValueError, TypeError) as e:
-            print(f"❌ Invalid total format: {receipt_json.get('total')} - {e}")
-            return jsonify({
-                "success": False,
-                "error": f"Invalid total amount format: {receipt_json.get('total')}"
-            }), 422
-        
-        # Step 5: Map JSON to database schema
-        from datetime import datetime
-        
-        receipt_data = {
-            'receipt_id': f"RCP_OCR_{datetime.now().strftime('%Y%m%d%H%M%S')}",
-            'receipt_type': 'uploaded',
-            'issue_date': receipt_json.get('date', datetime.now().strftime('%Y-%m-%d')),
-            'issue_time': '',
-            'merchant_name': receipt_json.get('vendor', 'Unknown'),
-            'merchant_address': '',
-            'merchant_gst': '',
-            'subtotal_amount': float(receipt_json.get('subtotal', 0)),
-            'tax_amount': float(receipt_json.get('tax', 0)),
-            'total_amount': total_amount,
-            'payment_method': receipt_json.get('payment_method', 'Unknown'),
-            'extracted_confidence_score': float(receipt_json.get('confidence_score', 0)),
-            'is_suspicious': float(receipt_json.get('confidence_score', 100)) < 50,
-            'embedding_version': 1,
-            'attachment_filename': safe_filename,
-            'raw_snippet': raw_text_response[:500]
-        }
-        
-        print(f"📊 Receipt data prepared: {receipt_data['receipt_id']}")
-        
-        # Step 6: Insert into receipts table
-        print("💾 Inserting into database...")
-        success, message = ReceiptRepository.add_receipt(receipt_data)
-        
-        if success:
-            print(f"✅ Receipt inserted successfully: {receipt_data['receipt_id']}")
-            return jsonify({
-                "success": True,
-                "message": f"Receipt processed successfully! Vendor: {receipt_data['merchant_name']}, Total: ₹{receipt_data['total_amount']}",
-                "type": "receipt",
-                "data": receipt_data,
-                "json_extracted": receipt_json
-            })
-        else:
-            print(f"❌ Database insertion failed: {message}")
-            return jsonify({
-                "success": False,
-                "error": f"Failed to save receipt to database: {message}"
-            }), 500
-        
-    except Exception as e:
-        print(f"❌ Upload error: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        
-        return jsonify({
-            "success": False,
-            "error": f"Server error: {str(e)}"
-        }), 500
+    payload, status_code = process_receipt_upload(request.files.get("file"), project_dir)
+    return jsonify(payload), status_code
 
 
 # ---------------------- WISHLIST SYSTEM ----------------------
 @app.route("/wishlist")
+@require_auth()
 def wishlist_page():
     """Wishlist & Smart Advisor page"""
-    if "credentials" not in session:
-        return redirect(url_for("index"))
-    
-    # Get user email from credentials
-    # Get user email from session (avoiding extra API call)
-    user_email = session.get("user_email")
+    user_email = get_or_cache_user_email()
     if not user_email:
-        # Fallback if session doesn't have it (rare)
-        creds = Credentials(**session["credentials"])
-        gmail = build("gmail", "v1", credentials=creds)
-        profile = gmail.users().getProfile(userId="me").execute()
-        user_email = profile.get("emailAddress")
-        session["user_email"] = user_email
+        return redirect(url_for("index"))
     
     # Get wishlist items for user
     wishlist_items = WishlistRepository.get_by_user(user_email)
-    
-    # Format for template
-    items = []
-    for item in wishlist_items:
-        items.append({
-            "wishlist_id": item.wishlist_id,
-            "item_name": item.item_name,
-            "expected_price": item.expected_price,
-            "category": item.category or "uncategorized",
-            "notes": item.notes,
-            "created_at": item.created_at.strftime('%B %d, %Y at %I:%M %p') if item.created_at else ""
-        })
+    items = serialize_wishlist_items(wishlist_items)
     
     # Count for navbar badge
     wishlist_count = len(items)
@@ -1032,20 +705,13 @@ def wishlist_page():
 
 
 @app.route("/wishlist/add", methods=["POST"])
+@require_auth(api=True)
 def add_wishlist_item():
     """Add item to wishlist with auto-categorization"""
-    if "credentials" not in session:
-        return jsonify({"success": False, "error": "Not authenticated"}), 401
-    
     try:
-        # Get user email
-        user_email = session.get("user_email")
+        user_email = get_or_cache_user_email()
         if not user_email:
-            creds = Credentials(**session["credentials"])
-            gmail = build("gmail", "v1", credentials=creds)
-            profile = gmail.users().getProfile(userId="me").execute()
-            user_email = profile.get("emailAddress")
-            session["user_email"] = user_email
+            return jsonify({"success": False, "error": "Not authenticated"}), 401
         
         # Get form data
         data = request.get_json() if request.is_json else request.form
@@ -1086,11 +752,9 @@ def add_wishlist_item():
 
 
 @app.route("/wishlist/delete/<wishlist_id>", methods=["POST"])
+@require_auth(api=True)
 def delete_wishlist_item(wishlist_id):
     """Delete wishlist item"""
-    if "credentials" not in session:
-        return jsonify({"success": False, "error": "Not authenticated"}), 401
-    
     try:
         success, message = WishlistRepository.delete_item(wishlist_id)
         
@@ -1105,11 +769,9 @@ def delete_wishlist_item(wishlist_id):
 
 
 @app.route("/api/wishlist/advice/<wishlist_id>")
+@require_auth(api=True)
 def get_wishlist_advice(wishlist_id):
     """Get AI-powered purchase advice for a wishlist item"""
-    if "credentials" not in session:
-        return jsonify({"success": False, "error": "Not authenticated"}), 401
-    
     try:
         # Get wishlist item
         item = WishlistRepository.get_by_id(wishlist_id)
@@ -1149,31 +811,6 @@ def get_wishlist_advice(wishlist_id):
         import traceback
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
-
-
-def categorize_item(item_name):
-    """Simple keyword-based categorization for wishlist items"""
-    item_lower = item_name.lower()
-    
-    # Category keywords mapping (same as transaction categories)
-    categories = {
-        "groceries": ["grocery", "vegetable", "fruit", "food", "supermarket", "mart", "store"],
-        "dining": ["restaurant", "cafe", "coffee", "pizza", "burger", "meal", "dine"],
-        "transportation": ["uber", "ola", "taxi", "metro", "bus", "train", "fuel", "petrol"],
-        "utilities": ["electricity", "water", "gas", "internet", "mobile", "recharge", "bill"],
-        "entertainment": ["movie", "cinema", "game", "music", "spotify", "netflix", "prime"],
-        "shopping": ["clothes", "shoes", "dress", "shirt", "jeans", "fashion", "amazon", "flipkart"],
-        "healthcare": ["medicine", "doctor", "hospital", "pharmacy", "health", "medical"],
-        "education": ["book", "course", "class", "tuition", "study", "school", "college"],
-        "electronics": ["phone", "laptop", "computer", "tablet", "camera", "headphone", "speaker"],
-        "home": ["furniture", "decor", "appliance", "kitchen", "bedroom", "cleaning"]
-    }
-    
-    for category, keywords in categories.items():
-        if any(keyword in item_lower for keyword in keywords):
-            return category
-    
-    return "other"
 
 
 # ---------------------- MCP API ENDPOINTS ----------------------
@@ -1235,6 +872,7 @@ def mcp_execute():
 
 
 @app.route("/api/mcp/chat", methods=["POST"])
+@require_auth(api=True)
 def mcp_chat():
     """
     MCP Chat Endpoint.
@@ -1250,12 +888,6 @@ def mcp_chat():
             "tools_used": ["get_monthly_spending_summary", "get_top_spending_categories"]
         }
     """
-    if "credentials" not in session:
-        return jsonify({
-            "success": False,
-            "error": "Not authenticated"
-        }), 401
-    
     try:
         data = request.get_json()
         

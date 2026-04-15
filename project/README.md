@@ -77,6 +77,15 @@ project/
 ├── client_secret.json          # Google OAuth credentials
 │
 ├── modules/
+│   ├── services/               # Business logic layer (route-independent)
+│   │   ├── dashboard_service.py
+│   │   ├── receipt_upload_service.py
+│   │   └── wishlist_service.py
+│   │
+│   ├── web/                    # Shared web/auth/session helpers
+│   │   ├── access.py
+│   │   └── user_context.py
+│   │
 │   ├── database/               # Database models & repositories
 │   │   ├── db.py               # SQLAlchemy instance
 │   │   ├── models.py           # Transaction, Receipt, Wishlist models
@@ -109,6 +118,8 @@ project/
 └── uploads/
     └── receipts/               # Uploaded receipt files
 ```
+
+See `ARCHITECTURE.md` for backend layering and extension guidelines.
 
 ---
 
