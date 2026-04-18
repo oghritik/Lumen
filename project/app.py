@@ -210,6 +210,10 @@ def auth_google():
     )
 
     session["state"] = state
+    # Persist PKCE verifier for callback token exchange.
+    if getattr(flow, "code_verifier", None):
+        session["code_verifier"] = flow.code_verifier
+
     return redirect(auth_url)
 
 
@@ -217,7 +221,12 @@ def auth_google():
 @app.route("/oauth2callback")
 def oauth2callback():
     try:
-        state = session["state"]
+        state = session.get("state")
+        code_verifier = session.get("code_verifier")
+
+        if not state:
+            flash("Authentication session expired. Please login again.", "error")
+            return redirect(url_for("auth_google"))
 
         flow = Flow.from_client_secrets_file(
             CLIENT_SECRET_FILE,
@@ -225,6 +234,9 @@ def oauth2callback():
             state=state,
             redirect_uri=url_for("oauth2callback", _external=True)
         )
+
+        if code_verifier:
+            flow.code_verifier = code_verifier
 
         flow.fetch_token(authorization_response=request.url)
     
@@ -241,10 +253,17 @@ def oauth2callback():
                     state=state,
                     redirect_uri=url_for("oauth2callback", _external=True)
                 )
+
+                if code_verifier:
+                    flow.code_verifier = code_verifier
+
                 flow.fetch_token(authorization_response=request.url)
             except:
                 flash("Authentication failed. Please check your Google Cloud Console setup.", "error")
                 return redirect(url_for("index"))
+        elif "Missing code verifier" in str(e):
+            flash("Authentication failed due to expired login session. Please try again.", "error")
+            return redirect(url_for("auth_google"))
         else:
             flash(f"Authentication failed: {str(e)}", "error")
             return redirect(url_for("index"))
@@ -259,6 +278,9 @@ def oauth2callback():
         "client_secret": creds.client_secret,
         "scopes": creds.scopes
     }
+
+    session.pop("state", None)
+    session.pop("code_verifier", None)
 
     # Authenticated users should not remain in guest mode.
     session.pop("guest_access", None)
