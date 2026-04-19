@@ -133,6 +133,7 @@ def internal_error(error):
     }), 500
 
 CLIENT_SECRET_FILE = os.getenv("GOOGLE_CLIENT_SECRET_FILE")
+
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/userinfo.profile",
@@ -211,6 +212,7 @@ def auth_google():
     )
 
     session["state"] = state
+    session["code_verifier"] = flow.code_verifier
     session.permanent = True
 
     return redirect(auth_url)
@@ -232,6 +234,7 @@ def oauth2callback():
             state=state,
             redirect_uri=url_for("oauth2callback", _external=True)
         )
+        flow.code_verifier = session.get("code_verifier")
 
         flow.fetch_token(authorization_response=request.url)
     
@@ -248,6 +251,7 @@ def oauth2callback():
                     state=state,
                     redirect_uri=url_for("oauth2callback", _external=True)
                 )
+                flow.code_verifier = session.get("code_verifier")
 
                 flow.fetch_token(authorization_response=request.url)
             except:
@@ -974,6 +978,6 @@ def healthz():
 if __name__ == "__main__":
     app.run(
         host=os.getenv("FLASK_HOST", "0.0.0.0"),
-        port=int(os.getenv("PORT", "5000")),
+        port=int(os.getenv("PORT", "1024")),
         debug=os.getenv("FLASK_DEBUG", "0") == "1"
     )
