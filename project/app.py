@@ -206,13 +206,12 @@ def auth_google():
 
     auth_url, state = flow.authorization_url(
         access_type="offline",
-        prompt="consent"
+        prompt="consent",
+        include_granted_scopes="true"
     )
 
     session["state"] = state
-    # Persist PKCE verifier for callback token exchange.
-    if getattr(flow, "code_verifier", None):
-        session["code_verifier"] = flow.code_verifier
+    session.permanent = True
 
     return redirect(auth_url)
 
@@ -222,7 +221,6 @@ def auth_google():
 def oauth2callback():
     try:
         state = session.get("state")
-        code_verifier = session.get("code_verifier")
 
         if not state:
             flash("Authentication session expired. Please login again.", "error")
@@ -234,9 +232,6 @@ def oauth2callback():
             state=state,
             redirect_uri=url_for("oauth2callback", _external=True)
         )
-
-        if code_verifier:
-            flow.code_verifier = code_verifier
 
         flow.fetch_token(authorization_response=request.url)
     
@@ -254,16 +249,10 @@ def oauth2callback():
                     redirect_uri=url_for("oauth2callback", _external=True)
                 )
 
-                if code_verifier:
-                    flow.code_verifier = code_verifier
-
                 flow.fetch_token(authorization_response=request.url)
             except:
                 flash("Authentication failed. Please check your Google Cloud Console setup.", "error")
                 return redirect(url_for("index"))
-        elif "Missing code verifier" in str(e):
-            flash("Authentication failed due to expired login session. Please try again.", "error")
-            return redirect(url_for("auth_google"))
         else:
             flash(f"Authentication failed: {str(e)}", "error")
             return redirect(url_for("index"))
@@ -280,7 +269,6 @@ def oauth2callback():
     }
 
     session.pop("state", None)
-    session.pop("code_verifier", None)
 
     # Authenticated users should not remain in guest mode.
     session.pop("guest_access", None)
